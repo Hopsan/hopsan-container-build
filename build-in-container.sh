@@ -6,14 +6,24 @@ hopsan_git_url=https://github.com/Hopsan/hopsan.git
 
 dockerfile="$1"
 git_ref="$2"
+base_version="$3"
+
+do_build=true
+do_test=true
+do_clean=false
 
 if [[ ! -f ${dockerfile} ]]; then
-    echo "error"
+    echo "Error: Arg1 must be an existing dockerfile"
     exit 1
 fi
 
 if [[ -z "$git_ref" ]]; then
-    echo "error 2"
+    echo "Error: Arg2 must be a git ref (branch, tag or commit hash)"
+    exit 1
+fi
+
+if [[ -z "$base_version" ]]; then
+    echo "Error: Arg3 must be the release version number for Hopsan"
     exit 1
 fi
 
@@ -47,11 +57,22 @@ if [[ ! -d ".git" ]]; then
 fi
 git fetch --all --prune
 git reset --hard ${git_ref}
-#git clean -ffdx
+if [[ "${do_clean}" == "true" ]]; then
+    git clean -ffdx
+fi
 pushd dependencies
-#./download-dependencies.py --cache ${host_deps_cache} all (need commit from other branch)
-./download-dependencies.py --all
+# Figure out if cache option is available in the version being built
+if ./download-dependencies.py --help | grep cache; then
+    ./download-dependencies.py --cache "${host_deps_cache}" --all
+else
+    ./download-dependencies.py --all
+fi
 popd
+release_revision=$(./getGitInfo.sh date.time .)
+full_version_name=${base_version}.${release_revision}
+echo Release revision number: $release_revision
+echo Release version name: $full_version_name
+sleep 2
 popd
 
 echo
@@ -60,23 +81,52 @@ echo Building inside container
 echo ==============================
 echo
 
-sudo docker run --user $(id -u):$(id -g) \
-     --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-     --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-     --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-     --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-     --tty --name ${image_name}-builder --rm ${image_name} bash -c \
-     "set -e; \
-      pushd /hopsan/code/dependencies; \
-      ./setupAll.sh; \
-      popd; \
-      pushd /hopsan/build; \
-      source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
-      echo HOPSAN_BUILD_QT_QMAKE \${HOPSAN_BUILD_QT_QMAKE}; \
-      \${HOPSAN_BUILD_QT_QMAKE} /hopsan/code/HopsanNG.pro -r -spec linux-g++ -config release; \
-      make -j8; \
-      popd; \
-      pushd /hopsan/code; \
-      set +e; \
-      packaging/copyInstallHopsan.sh ./ /hopsan/install; \
-      popd"
+if [[ "${do_build}" == "true" ]]; then
+
+    if [[ "${do_clean}" == "true" ]]; then
+        rm -rf ${host_build_dir}
+        rm -rf ${host_install_dir}
+    fi
+    mkdir -p ${host_build_dir}
+    mkdir -p ${host_install_dir}
+
+    sudo docker run --user $(id -u):$(id -g) \
+         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+         --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+         "set -e; \
+          pushd /hopsan/code/dependencies; \
+          ./setupAll.sh; \
+          popd; \
+          pushd /hopsan/code; \
+          ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
+                                           ${base_version} ${release_revision} ${full_version_name} \
+                                           true false; \
+          popd; \
+          pushd /hopsan/build; \
+          source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
+          echo HOPSAN_BUILD_QT_QMAKE \${HOPSAN_BUILD_QT_QMAKE}; \
+          \${HOPSAN_BUILD_QT_QMAKE} /hopsan/code/HopsanNG.pro -r -spec linux-g++ -config release; \
+          make -j8; \
+          popd; \
+          pushd /hopsan/code; \
+          packaging/copyInstallHopsan.sh ./ /hopsan/install; \
+          if [[ \"$do_test\" == \"true\" ]]; then \
+              export QT_QPA_PLATFORM=offscreen; \
+              # Using TRAVIS_OS_NAME to prevent gui test from running, it does not work inside container for unknown reason
+              export TRAVIS_OS_NAME=osx; \
+              ./runUnitTests.sh; \
+              ./runValidationTests.sh; \
+          fi; \
+          popd; \
+          echo Done"
+else
+    sudo docker run --user $(id -u):$(id -g) \
+         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+         --tty  --interactive --name ${image_name}-runner --entrypoint /bin/bash --rm ${image_name}
+fi
