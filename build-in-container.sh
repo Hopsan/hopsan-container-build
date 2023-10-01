@@ -10,7 +10,7 @@ base_version="$3"
 
 do_build=true
 do_test=true
-do_clean=false
+do_clean=true
 
 if [[ ! -f ${dockerfile} ]]; then
     echo "Error: Arg1 must be an existing dockerfile"
@@ -121,7 +121,14 @@ if [[ "${do_build}" == "true" ]]; then
               ./runValidationTests.sh; \
           fi; \
           popd; \
-          echo Done"
+          echo Build Done"
+
+    release_dir=hopsan-${name}${tag}-${full_version_name}
+    rm -rf ${release_dir}
+    cp -rv ${host_install_dir} ${release_dir}
+    tar -czf ${release_dir}.tar.gz --owner=0 --group=0 ${release_dir}
+    echo "Done packaging: ${release_dir}.tar.gz"
+
 else
     sudo docker run --user $(id -u):$(id -g) \
          --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
