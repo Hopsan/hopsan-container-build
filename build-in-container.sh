@@ -97,10 +97,11 @@ if [[ "${do_build}" == "true" ]]; then
          --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
          --tty --name ${image_name}-builder --rm ${image_name} bash -c \
          "set -e; \
+          pushd /hopsan/code; \
+          ./packaging/fixPythonShebang.sh ./ 3
           pushd /hopsan/code/dependencies; \
           ./setupAll.sh; \
           popd; \
-          pushd /hopsan/code; \
           ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
                                            ${base_version} ${release_revision} ${full_version_name} \
                                            true false; \
