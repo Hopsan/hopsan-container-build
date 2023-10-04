@@ -63,6 +63,8 @@ if [[ "${do_clean}" == "true" ]]; then
     git clean -ffdx
 fi
 pushd dependencies
+# Switch to python3 in case of older version being checked out
+sed 's|#!/usr/bin/env python$|#!/usr/bin/env python3|' -i download-dependencies.py
 # Figure out if cache option is available in the version being built
 if ./download-dependencies.py --help | grep cache; then
     ./download-dependencies.py --cache "${host_deps_cache}" --all
