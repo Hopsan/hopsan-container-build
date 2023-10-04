@@ -58,7 +58,13 @@ if [[ ! -d ".git" ]]; then
     git submodule update --init
 fi
 git fetch --all --prune
-git reset --hard ${git_ref}
+git config advice.detachedHead false
+git checkout ${git_ref}
+if git tag --list v* | grep ${git_ref}; then
+    git reset --hard ${git_ref}
+else
+    git reset --hard origin/${git_ref}
+fi
 if [[ "${do_clean}" == "true" ]]; then
     git clean -ffdx
 fi
