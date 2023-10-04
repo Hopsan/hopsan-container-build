@@ -35,15 +35,17 @@ image_name=hopsan-build-${name}${tag}
 sudo docker build --file ${dockerfile} --tag ${image_name}:latest .
 sudo docker images
 
-host_deps_cache=$(pwd -P)/dependencies-cache
+host_deps_cache=$(pwd -P)/hopsan-dependencies-cache
 host_code_dir=$(pwd -P)/${image_name}-code
 host_build_dir=$(pwd -P)/${image_name}-build
 host_install_dir=$(pwd -P)/${image_name}-install
+host_package_output_dir=$(pwd -P)/hopsan-packages
 
 mkdir -p ${host_deps_cache}
 mkdir -p ${host_code_dir}
 mkdir -p ${host_build_dir}
 mkdir -p ${host_install_dir}
+mkdir -p ${host_package_output_dir}
 
 echo
 echo ==============================
@@ -124,11 +126,16 @@ if [[ "${do_build}" == "true" ]]; then
           popd; \
           echo Build Done"
 
-    release_dir=hopsan-${name}${tag}-${full_version_name}
-    rm -rf ${release_dir}
-    cp -rv ${host_install_dir} ${release_dir}
-    tar -czf ${release_dir}.tar.gz --owner=0 --group=0 ${release_dir}
-    echo "Done packaging: ${release_dir}.tar.gz"
+    pushd "${host_package_output_dir}"
+    package_dir_name=hopsan-${name}${tag}-${full_version_name}
+    package_file_name=${package_dir_name}.tar.gz
+    rm -rf "${package_dir_name}"
+    rm -rf "${package_file_name}"
+    cp -rv "${host_install_dir}" "${package_dir_name}"
+    tar -czf "${package_file_name}" --owner=0 --group=0 "${package_dir_name}"
+    rm -rf "${package_dir_name}"
+    popd
+    echo "Done packaging: ${host_package_output_dir}/${package_file_name}"
 
 else
     sudo docker run --user $(id -u):$(id -g) \
