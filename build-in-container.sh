@@ -41,18 +41,18 @@ host_build_dir=$(pwd -P)/${image_name}-build
 host_install_dir=$(pwd -P)/${image_name}-install
 host_package_output_dir=$(pwd -P)/hopsan-packages
 
-mkdir -p ${host_deps_cache}
-mkdir -p ${host_code_dir}
-mkdir -p ${host_build_dir}
-mkdir -p ${host_install_dir}
-mkdir -p ${host_package_output_dir}
+mkdir -p "${host_deps_cache}"
+mkdir -p "${host_code_dir}"
+mkdir -p "${host_build_dir}"
+mkdir -p "${host_install_dir}"
+mkdir -p "${host_package_output_dir}"
 
 echo
 echo ==============================
 echo Downloading source code
 echo ==============================
 echo
-pushd ${host_code_dir}
+pushd "${host_code_dir}"
 if [[ ! -d ".git" ]]; then
     git clone ${hopsan_git_url} .
     git submodule update --init
@@ -67,6 +67,8 @@ pushd dependencies
 if ./download-dependencies.py --help | grep cache; then
     ./download-dependencies.py --cache "${host_deps_cache}" --all
 else
+    # if not, ugly copy any/all files from the cache (may have been manually placed there)
+    cp -v "${host_deps_cache}"/* .
     ./download-dependencies.py --all
 fi
 popd
