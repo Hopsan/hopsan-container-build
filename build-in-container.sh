@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -x
-
 hopsan_git_url=https://github.com/Hopsan/hopsan.git
 
 dockerfile="$1"
@@ -11,6 +9,7 @@ base_version="$3"
 do_build=true
 do_test=true
 do_clean=true
+do_build_deps=true
 
 if [[ ! -f ${dockerfile} ]]; then
     echo "Error: Arg1 must be an existing dockerfile"
@@ -34,6 +33,7 @@ image_name=hopsan-build-${name}${tag}
 
 sudo docker build --file ${dockerfile} --tag ${image_name}:latest .
 sudo docker images
+sleep 2
 
 host_deps_cache=$(pwd -P)/hopsan-dependencies-cache
 host_code_dir=$(pwd -P)/${image_name}-code
@@ -55,7 +55,6 @@ echo
 pushd "${host_code_dir}"
 if [[ ! -d ".git" ]]; then
     git clone ${hopsan_git_url} .
-    git submodule update --init
 fi
 git fetch --all --prune
 git config advice.detachedHead false
@@ -68,6 +67,8 @@ fi
 if [[ "${do_clean}" == "true" ]]; then
     git clean -ffdx
 fi
+git submodule update --init --recursive
+sleep 2
 pushd dependencies
 # Switch to python3 in case of older version being checked out
 sed 's|#!/usr/bin/env python$|#!/usr/bin/env python3|' -i download-dependencies.py
@@ -87,6 +88,7 @@ echo Release version name: $full_version_name
 sleep 2
 popd
 
+
 echo
 echo ==============================
 echo Building inside container
@@ -94,7 +96,6 @@ echo ==============================
 echo
 
 if [[ "${do_build}" == "true" ]]; then
-
     if [[ "${do_clean}" == "true" ]]; then
         rm -rf ${host_build_dir}
         rm -rf ${host_install_dir}
@@ -102,6 +103,31 @@ if [[ "${do_build}" == "true" ]]; then
     mkdir -p ${host_build_dir}
     mkdir -p ${host_install_dir}
 
+    # Build dependencies
+    if [[ "${do_build_deps}" == "true" ]]; then
+        echo "Building dependencies"
+        sudo docker run --user $(id -u):$(id -g) \
+             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+             "set -e; \
+              pushd /hopsan/code; \
+              ./packaging/fixPythonShebang.sh ./ 3; \
+              pushd /hopsan/code/dependencies; \
+              ./setupAll.sh; \
+              popd; \
+              popd"
+        if [[ $? -ne 0 ]]; then
+            echo "Build of Hopsans dependencies failed!"
+            exit 1
+        fi
+        sleep 2
+    fi
+
+    # Build Hopsan
+    echo "Building Hopsan"
     sudo docker run --user $(id -u):$(id -g) \
          --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
          --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
@@ -110,10 +136,6 @@ if [[ "${do_build}" == "true" ]]; then
          --tty --name ${image_name}-builder --rm ${image_name} bash -c \
          "set -e; \
           pushd /hopsan/code; \
-          ./packaging/fixPythonShebang.sh ./ 3
-          pushd /hopsan/code/dependencies; \
-          ./setupAll.sh; \
-          popd; \
           ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
                                            ${base_version} ${release_revision} ${full_version_name} \
                                            true false; \
@@ -136,6 +158,12 @@ if [[ "${do_build}" == "true" ]]; then
           popd; \
           echo Build Done"
 
+    if [[ $? -ne 0 ]]; then
+        echo "Build of Hopsan failed!"
+        exit 1
+    fi
+
+    # Package the installation
     pushd "${host_package_output_dir}"
     package_dir_name=hopsan-${name}${tag}-${full_version_name}
     package_file_name=${package_dir_name}.tar.gz
