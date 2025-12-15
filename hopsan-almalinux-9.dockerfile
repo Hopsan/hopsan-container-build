@@ -14,3 +14,5 @@ RUN dnf install qt5-qtbase-devel qt5-qtbase-private-devel qt5-qtsvg-devel qt5-qt
 
 # Install from EPEL
 RUN dnf install qt5-qtwebengine qt5-qtwebengine-devtools -y
+
+RUN dnf install ninja-build qt5-qtwebengine-devel -y
