@@ -1,13 +1,16 @@
 #!/bin/bash
 
-hopsan_git_url=https://github.com/Hopsan/hopsan.git
+#hopsan_git_url=https://github.com/Hopsan/hopsan.git
+hopsan_git_url=https://github.com/peterNordin/hopsan.git
 
 dockerfile="$1"
 git_ref="$2"
 base_version="$3"
 
 do_build=true
-do_test=true
+do_build_with_cmake=true
+do_test=false
+
 do_clean=true
 do_build_deps=true
 
@@ -28,8 +31,9 @@ fi
 
 name=$(echo ${dockerfile} | cut -d. -f1 | cut -d- -f2)
 tag=$(echo ${dockerfile} | cut -d. -f1 | cut -d- -f3)
-
 image_name=hopsan-build-${name}${tag}
+
+set -e
 
 sudo docker build --file ${dockerfile} --tag ${image_name}:latest .
 sudo docker images
@@ -127,36 +131,60 @@ if [[ "${do_build}" == "true" ]]; then
     fi
 
     # Build Hopsan
-    echo "Building Hopsan"
-    sudo docker run --user $(id -u):$(id -g) \
-         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-         --tty --name ${image_name}-builder --rm ${image_name} bash -c \
-         "set -e; \
-          pushd /hopsan/code; \
-          ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
-                                           ${base_version} ${release_revision} ${full_version_name} \
-                                           true false; \
-          popd; \
-          pushd /hopsan/build; \
-          source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
-          echo HOPSAN_BUILD_QT_QMAKE \${HOPSAN_BUILD_QT_QMAKE}; \
-          \${HOPSAN_BUILD_QT_QMAKE} /hopsan/code/HopsanNG.pro -r -spec linux-g++ -config release; \
-          make -j8; \
-          popd; \
-          pushd /hopsan/code; \
-          packaging/copyInstallHopsan.sh ./ /hopsan/install; \
-          if [[ \"$do_test\" == \"true\" ]]; then \
-              export QT_QPA_PLATFORM=offscreen; \
-              # Using TRAVIS_OS_NAME to prevent gui test from running, it does not work inside container for unknown reason
-              export TRAVIS_OS_NAME=osx; \
-              ./runUnitTests.sh; \
-              ./runValidationTests.sh; \
-          fi; \
-          popd; \
-          echo Build Done"
+    if [[ "${do_build_with_cmake}" == "true" ]]; then
+        echo "Building Hopsan with CMake"
+        sudo docker run --user $(id -u):$(id -g) \
+             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+             "set -e; \
+              pushd /hopsan; \
+              source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
+              cmake -B/hopsan/build -S/hopsan/code -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/hopsan/install -GNinja; \
+              cmake --build /hopsan/build --target install; \
+              popd; \
+              if [[ \"$do_test\" == \"true\" ]]; then \
+                 export QT_QPA_PLATFORM=offscreen; \
+                 # Using TRAVIS_OS_NAME to prevent gui test from running, it does not work inside container for unknown reason
+                 export TRAVIS_OS_NAME=osx; \
+                 ./runUnitTests.sh; \
+                 ./runValidationTests.sh; \
+              fi; \
+              popd"
+    else
+        echo "Building Hopsan with QMake"
+        sudo docker run --user $(id -u):$(id -g) \
+             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+             "set -e; \
+              pushd /hopsan/code; \
+              ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
+                                               ${base_version} ${release_revision} ${full_version_name} \
+                                               true false; \
+              popd; \
+              pushd /hopsan/build; \
+              source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
+              echo HOPSAN_BUILD_QT_QMAKE \${HOPSAN_BUILD_QT_QMAKE}; \
+              \${HOPSAN_BUILD_QT_QMAKE} /hopsan/code/HopsanNG.pro -r -spec linux-g++ -config release; \
+              make -j8; \
+              popd; \
+              pushd /hopsan/code; \
+              packaging/copyInstallHopsan.sh ./ /hopsan/install; \
+              if [[ \"$do_test\" == \"true\" ]]; then \
+                 export QT_QPA_PLATFORM=offscreen; \
+                 # Using TRAVIS_OS_NAME to prevent gui test from running, it does not work inside container for unknown reason
+                 export TRAVIS_OS_NAME=osx; \
+                 ./runUnitTests.sh; \
+                 ./runValidationTests.sh; \
+              fi; \
+              popd"
+    fi
+    echo "Build Done"
 
     if [[ $? -ne 0 ]]; then
         echo "Build of Hopsan failed!"
