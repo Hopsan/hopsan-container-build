@@ -7,7 +7,6 @@ dockerfile="$1"
 git_ref="$2"
 base_version="$3"
 
-do_build=true
 do_build_deps=true
 do_build_with_cmake=true
 do_build_clean=true
@@ -100,46 +99,45 @@ echo Building inside container
 echo ==============================
 echo
 
-if [[ "${do_build}" == "true" ]]; then
-    if [[ "${do_build_clean}" == "true" ]]; then
-        rm -rf ${host_build_dir}
-        rm -rf ${host_install_dir}
-    fi
-    mkdir -p ${host_build_dir}
-    mkdir -p ${host_install_dir}
+if [[ "${do_build_clean}" == "true" ]]; then
+    rm -rf ${host_build_dir}
+    rm -rf ${host_install_dir}
+fi
+mkdir -p ${host_build_dir}
+mkdir -p ${host_install_dir}
 
-    # Build dependencies
-    if [[ "${do_build_deps}" == "true" ]]; then
-        echo "Building dependencies"
-        sudo docker run --user $(id -u):$(id -g) \
-             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
-             "set -e; \
-              pushd /hopsan/code; \
-              ./packaging/fixPythonShebang.sh ./ 3; \
-              pushd /hopsan/code/dependencies; \
-              ./setupAll.sh; \
-              popd; \
-              popd"
-        if [[ $? -ne 0 ]]; then
-            echo "Build of Hopsans dependencies failed!"
-            exit 1
-        fi
-        sleep 2
+# Build dependencies
+if [[ "${do_build_deps}" == "true" ]]; then
+    echo "Building dependencies"
+    sudo docker run --user $(id -u):$(id -g) \
+         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+         --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+         "set -e; \
+          pushd /hopsan/code; \
+          ./packaging/fixPythonShebang.sh ./ 3; \
+          pushd /hopsan/code/dependencies; \
+          ./setupAll.sh; \
+          popd; \
+          popd"
+    if [[ $? -ne 0 ]]; then
+        echo "Build of Hopsans dependencies failed!"
+        exit 1
     fi
+    sleep 2
+fi
 
-    # Build Hopsan
-    if [[ "${do_build_with_cmake}" == "true" ]]; then
-        echo "Building Hopsan with CMake"
-        sudo docker run --user $(id -u):$(id -g) \
-             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+# Build Hopsan
+if [[ "${do_build_with_cmake}" == "true" ]]; then
+    echo "Building Hopsan with CMake"
+    sudo docker run --user $(id -u):$(id -g) \
+         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+         --tty --name ${image_name}-builder --rm ${image_name} bash -c \
              "set -e; \
               pushd /hopsan; \
               source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
@@ -155,14 +153,14 @@ if [[ "${do_build}" == "true" ]]; then
                  popd; \
               fi; \
               popd"
-    else
-        echo "Building Hopsan with QMake"
-        sudo docker run --user $(id -u):$(id -g) \
-             --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-             --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-             --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-             --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-             --tty --name ${image_name}-builder --rm ${image_name} bash -c \
+else
+    echo "Building Hopsan with QMake"
+    sudo docker run --user $(id -u):$(id -g) \
+         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
+         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
+         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
+         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
+         --tty --name ${image_name}-builder --rm ${image_name} bash -c \
              "set -e; \
               pushd /hopsan/code; \
               ./packaging/prepareSourceCode.sh /hopsan/code /hopsan/code \
@@ -185,33 +183,23 @@ if [[ "${do_build}" == "true" ]]; then
                  ./runValidationTests.sh; \
               fi; \
               popd"
-    fi
-
-    if [[ $? -ne 0 ]]; then
-        echo "Build of Hopsan failed!"
-        exit 1
-    else
-        echo "Build Done"
-    fi
-
-    # Package the installation
-    pushd "${host_package_output_dir}"
-    package_dir_name=hopsan-${name}${tag}-${full_version_name}
-    package_file_name=${package_dir_name}.tar.gz
-    rm -rf "${package_dir_name}"
-    rm -rf "${package_file_name}"
-    cp -rv "${host_install_dir}" "${package_dir_name}"
-    tar -czf "${package_file_name}" --owner=0 --group=0 "${package_dir_name}"
-    rm -rf "${package_dir_name}"
-    popd
-    echo "Done packaging: ${host_package_output_dir}/${package_file_name}"
-
-else
-    # Else enter an instance of the container
-    sudo docker run --user $(id -u):$(id -g) \
-         --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
-         --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
-         --mount type=bind,src=${host_build_dir},dst=/hopsan/build \
-         --mount type=bind,src=${host_install_dir},dst=/hopsan/install \
-         --tty  --interactive --name ${image_name}-runner --entrypoint /bin/bash --rm ${image_name}
 fi
+
+if [[ $? -ne 0 ]]; then
+    echo "Build of Hopsan failed!"
+    exit 1
+else
+    echo "Build Done"
+fi
+
+# Package the installation
+pushd "${host_package_output_dir}"
+package_dir_name=hopsan-${name}${tag}-${full_version_name}
+package_file_name=${package_dir_name}.tar.gz
+rm -rf "${package_dir_name}"
+rm -rf "${package_file_name}"
+cp -rv "${host_install_dir}" "${package_dir_name}"
+tar -czf "${package_file_name}" --owner=0 --group=0 "${package_dir_name}"
+rm -rf "${package_dir_name}"
+popd
+echo "Done packaging: ${host_package_output_dir}/${package_file_name}"
