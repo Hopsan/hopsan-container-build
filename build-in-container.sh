@@ -8,11 +8,12 @@ git_ref="$2"
 base_version="$3"
 
 do_build=true
+do_build_deps=true
 do_build_with_cmake=true
+do_build_clean=true
+
 do_test=false
 
-do_clean=true
-do_build_deps=true
 
 if [[ ! -f ${dockerfile} ]]; then
     echo "Error: Arg1 must be an existing dockerfile"
@@ -68,7 +69,7 @@ if git tag --list v* | grep ${git_ref}; then
 else
     git reset --hard origin/${git_ref}
 fi
-if [[ "${do_clean}" == "true" ]]; then
+if [[ "${do_build_clean}" == "true" ]]; then
     git clean -ffdx
 fi
 git submodule update --init --recursive
@@ -100,7 +101,7 @@ echo ==============================
 echo
 
 if [[ "${do_build}" == "true" ]]; then
-    if [[ "${do_clean}" == "true" ]]; then
+    if [[ "${do_build_clean}" == "true" ]]; then
         rm -rf ${host_build_dir}
         rm -rf ${host_install_dir}
     fi
@@ -144,13 +145,14 @@ if [[ "${do_build}" == "true" ]]; then
               source /hopsan/code/dependencies/setHopsanBuildPaths.sh; \
               cmake -B/hopsan/build -S/hopsan/code -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/hopsan/install -GNinja; \
               cmake --build /hopsan/build --target install; \
-              popd; \
               if [[ \"$do_test\" == \"true\" ]]; then \
+                 pushd /hopsan/code; \
                  export QT_QPA_PLATFORM=offscreen; \
                  # Using TRAVIS_OS_NAME to prevent gui test from running, it does not work inside container for unknown reason
                  export TRAVIS_OS_NAME=osx; \
                  ./runUnitTests.sh; \
                  ./runValidationTests.sh; \
+                 popd; \
               fi; \
               popd"
     else
@@ -184,11 +186,12 @@ if [[ "${do_build}" == "true" ]]; then
               fi; \
               popd"
     fi
-    echo "Build Done"
 
     if [[ $? -ne 0 ]]; then
         echo "Build of Hopsan failed!"
         exit 1
+    else
+        echo "Build Done"
     fi
 
     # Package the installation
@@ -204,6 +207,7 @@ if [[ "${do_build}" == "true" ]]; then
     echo "Done packaging: ${host_package_output_dir}/${package_file_name}"
 
 else
+    # Else enter an instance of the container
     sudo docker run --user $(id -u):$(id -g) \
          --mount type=bind,src=${host_deps_cache},dst=/hopsan/deps \
          --mount type=bind,src=${host_code_dir},dst=/hopsan/code \
